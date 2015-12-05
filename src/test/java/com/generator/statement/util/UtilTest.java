@@ -6,10 +6,11 @@ import java.util.Set;
 
 import org.junit.Test;
 
-import com.generator.statement.config.SqlsEnum;
-import com.generator.statement.config.StatementsEnum;
+import com.generator.statement.AbstractTest;
+import com.generator.statement.enums.JavaStatementEnum;
+import com.generator.statement.enums.SqlStatementEnum;
 
-public class UtilTest {
+public class UtilTest extends AbstractTest {
 	
 	private String stringWithLastComma = "?,?,?,?,?,?,?,?,";
 	private String stringWithoutLastComma = "?,?,?,?,?,?,?,?";
@@ -21,10 +22,10 @@ public class UtilTest {
 	
 	@Test
 	public void testSuccessGetStatements() {
-		Set<StatementsEnum> statements = Util.getStatements();
+		Set<JavaStatementEnum> statements = Util.getStatements();
 		assertEquals(2, statements.size());
-		assertTrue(statements.contains(StatementsEnum.PSTM));
-		assertTrue(statements.contains(StatementsEnum.RESULTSET));
+		assertTrue(statements.contains(JavaStatementEnum.PSTM));
+		assertTrue(statements.contains(JavaStatementEnum.RESULTSET));
 	}
 	
 	@Test
@@ -37,9 +38,9 @@ public class UtilTest {
 	
 	@Test
 	public void testSuccessGetSqls() {
-		Set<SqlsEnum> sqlsSet = Util.getSqls();
+		Set<SqlStatementEnum> sqlsSet = Util.getSqls();
 		assertEquals(1, sqlsSet.size());
-		assertTrue(sqlsSet.contains(SqlsEnum.INSERT));
+		assertTrue(sqlsSet.contains(SqlStatementEnum.INSERT));
 	}
 
 }

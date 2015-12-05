@@ -1,176 +1,87 @@
 package com.generator.statement;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.util.HashSet;
-import java.util.Scanner;
-import java.util.Set;
+import java.util.List;
 
-import org.apache.bcel.classfile.ClassFormatException;
-import org.apache.bcel.classfile.ClassParser;
-import org.apache.bcel.classfile.JavaClass;
-import org.hibernate.cfg.NamingStrategy;
-
-import com.generator.statement.config.FileEnum;
-import com.generator.statement.config.NamingStrategyEnum;
-import com.generator.statement.config.SqlsEnum;
-import com.generator.statement.config.StatementsEnum;
+import com.generator.statement.config.Config;
+import com.generator.statement.enums.FileEnum;
+import com.generator.statement.enums.OutputEnum;
+import com.generator.statement.enums.StatementTypeEnum;
 import com.generator.statement.factory.InterpretedClassFactory;
-import com.generator.statement.service.DMLService;
-import com.generator.statement.service.InterpretedClass;
-import com.generator.statement.service.JavaService;
-import com.generator.statement.service.impl.DMLServiceImpl;
-import com.generator.statement.service.impl.JavaServiceImpl;
-import com.generator.statement.util.PropertyReader;
-import com.generator.statement.util.Util;
+import com.generator.statement.factory.StatementListFactory;
+import com.generator.statement.model.InterpretedClass;
+import com.generator.statement.statement.AbstractStatement;
+import com.generator.statement.util.ClassUtils;
+import com.generator.statement.util.FileUtils;
+import com.generator.statement.util.JavaUtils;
 
 public class Main {
 
-	private static final String PACKAGE_REGEX = "package\\s+([a-zA_Z_][\\.\\w]*);";
-	private static JavaService javaService;
-	private static DMLService dmlService;
-	private static NamingStrategy namingStrategy;
-	private static Class<?> klazz;
 	private static InterpretedClass interpretedClass;
-	private static Set<File> fileSet;
-
-	static {
-		namingStrategy = NamingStrategyEnum.getNamingStrategyByString(PropertyReader.getProperty("naming_strategy"));
-		dmlService = new DMLServiceImpl();
-		javaService = new JavaServiceImpl();
-	}
 	
-	public static void main(String[] args) throws Exception {
-		if(args.length > 0) {
-			for (File file : getFileSet(args)) {
-				FileEnum fileEnum = FileEnum.getFileEnumByFilename(file.getName());
-				execute(fileEnum, file);
-			}
+	public static void main(String[] args) throws Exception { //TODO: AspectJ
+		System.out.println("Starting...");
+		if(hasArgs(args)) {
+			generateStatementsForSpecificFiles(args);
 		} else {
-			FileEnum fileEnum = FileEnum.getFileEnumByType(PropertyReader.getProperty("file_type"));
-			if(fileEnum != null) {
-				compileIfNeeded(fileEnum);
-				fileSet = getFilesForCurrentFolder(fileEnum);
-				for (File file : fileSet) {
-					execute(fileEnum, file);
-				}
-			}
+			generateStatementsForAllFilesIfFileTypeIsRight();
 		}
-	}
-
-	private static void compileIfNeeded(FileEnum fileEnum) throws IOException {
-		if(fileEnum.equals(FileEnum.JAVA)) {
-			Runtime.getRuntime().exec("javac -cp \"./*\" *.java");
-		}
-	}
-
-	private static void execute(FileEnum fileEnum, File file) throws IOException {
-		System.out.println("File: " + file.getName());
-		interpretedClass = InterpretedClassFactory.getInterpretedClass(getClass(file, fileEnum));
-		generateSqls();
-		generateStatements();
-	}
-
-	private static Set<File> getFileSet(String[] args) {
-		Set<File> fileSet = new HashSet<File>();
-		for (String filename : args) {
-			if(FileEnum.getFileEnumByFilename(filename) != null) {
-				fileSet.add(new File(filename));
-			}
-		}
-		return fileSet;
+		System.out.println("\nFinished.");
 	}
 	
-	private static Object getClass(File file, FileEnum fileEnum) throws ClassFormatException, IOException {
-		switch (fileEnum) {
-		case JAVA:
-			loadClass(file, getClassPackage(file));
-			return klazz;
-		case CLASS:
-			ClassParser parser = new ClassParser(file.getName());
-			JavaClass javaClass = parser.parse();
-			return javaClass;
+	private static boolean hasArgs(String[] args) {
+		return args.length > 0;
+	}
+	
+	private static void generateStatementsForSpecificFiles(String[] args) throws IOException {
+		for (File file : FileUtils.getFileSet(args)) {
+			FileEnum fileEnum = FileEnum.getFileEnumByFilename(file.getName());
+			generateStatementsForFile(fileEnum, file);
+		}
+	}
+	
+	private static void generateStatementsForFile(FileEnum fileEnum, File file) throws IOException {
+		System.out.println("\nFile: " + file.getName());
+		interpretedClass = InterpretedClassFactory.getInterpretedClass(ClassUtils.getClass(file, fileEnum));
+		generateStatements(StatementTypeEnum.SQL);
+		generateStatements(StatementTypeEnum.JAVA);
+	}
+
+
+	private static void generateStatements(StatementTypeEnum statementType) {
+		List<AbstractStatement> statementList = StatementListFactory.factory(interpretedClass, statementType);
+		for (AbstractStatement statement : statementList) {
+			print(statement.getStatement(), statement.getClass().getSimpleName());
+		}
+	}
+
+	private static void generateStatementsForAllFilesIfFileTypeIsRight() throws IOException {
+		FileEnum fileEnum = FileEnum.getFileEnumByType(Config.FILE_TYPE);
+		if(fileEnum != null) {
+			JavaUtils.compileIfNeeded(fileEnum);
+			generateStatementsForAllFiles(fileEnum);
+		}
+	}
+
+	private static void generateStatementsForAllFiles(FileEnum fileEnum) throws IOException {
+		for (File file : FileUtils.getFilesForCurrentFolder(fileEnum)) {
+			generateStatementsForFile(fileEnum, file);
+		}
+	}
+
+	private static void print(String string, String statement) { 
+		OutputEnum output = OutputEnum.getOutputEnumByValue(Config.OUTPUT);
+		switch (output) {
+		case CONSOLE:
+			System.out.println(string);
+			break;
+		case FILE:
+			FileUtils.writeToFile(string, interpretedClass.getName(), statement + ".txt");
+			break;
 		default:
-			return null;
+			break;
 		}
-	}
-
-	private static Set<File> getFilesForCurrentFolder(FileEnum fileEnum) {
-		Set<File> fileSet = new HashSet<File>();
-		for (File file : new File(".").listFiles()) {
-			if (file.getName().endsWith(fileEnum.getSuffix())) {
-				fileSet.add(file);
-			}
-		}
-		return fileSet;
-	}
-
-	@SuppressWarnings("resource")
-	private static void loadClass(File file, String classPackage) throws MalformedURLException {
-		try {
-			ClassLoader classLoader = new URLClassLoader(new URL[]{ file.toURI().toURL() });
-			System.out.println("Class: " + classPackage + file.getName().replace(FileEnum.JAVA.getSuffix(), ""));
-			klazz = classLoader.loadClass(classPackage + file.getName().replace(FileEnum.JAVA.getSuffix(), ""));
-		} catch (ClassNotFoundException e) {
-			System.out.println("Probably the class didn't compile. Try to use \"javac -cp statement-generator-{version}.jar yourClass.java\"");
-			e.printStackTrace();
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-	}
-
-	private static String getClassPackage(File file) throws FileNotFoundException {
-		Scanner sc = new Scanner(file);
-		String classPackage = "";
-		boolean packageNotFound = true;
-		while (sc.hasNext() && packageNotFound) {
-			String line = sc.nextLine();
-
-			if (line.matches(PACKAGE_REGEX)) {
-				classPackage = line.split("\\s+")[1].replace(";", ".");
-				packageNotFound = false;
-			}
-			if (line.contains("public class")) {
-				packageNotFound = false;
-			}
-		}
-		sc.close();
-		return classPackage;
-	}
-
-	private static void generateSqls() {
-		for (SqlsEnum sqlsEnum : Util.getSqls()) {
-			switch (sqlsEnum) {
-			case INSERT:
-				print(dmlService.getInsertSQLStatement(interpretedClass, namingStrategy));
-				break;
-			default:
-				break;
-			}
-		}
-	}
-
-	private static void generateStatements() {
-		for (StatementsEnum statementsEnum : Util.getStatements()) {
-			switch (statementsEnum) {
-			case PSTM:
-				print(javaService.getPreparedStatement(interpretedClass));
-				break;
-			case RESULTSET:
-				print(javaService.getResultSetStatement(interpretedClass, namingStrategy));
-				break;
-			default:
-				break;
-			}
-		}
-	}
-
-	static void print(String string) {
-		System.out.println(string);
 	}
 	
 }
